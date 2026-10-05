@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <title>SentinelLab</title>
+
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 40px;
+            color: #e5e7eb;
+            background: #0b1020;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        h1, h2 {
+            color: #5eead4;
+        }
+
+        .monitoring {
+            color: #4ade80;
+        }
+
+        .source {
+            color: #93c5fd;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(170px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        .card, .panel {
+            padding: 20px;
+            background: #151c30;
+            border: 1px solid #26324f;
+            border-radius: 12px;
+        }
+
+        .panel {
+            margin-top: 24px;
+            overflow-x: auto;
+        }
+
+        .value {
+            display: block;
+            margin-top: 8px;
+            color: white;
+            font-size: 1.7rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #26324f;
+        }
+
+        th {
+            color: #94a3b8;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 9px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .safe {
+            color: #86efac;
+            background: #14532d;
+        }
+
+        .warning {
+            color: #fde68a;
+            background: #713f12;
+        }
+
+        .resolved {
+            color: #bfdbfe;
+            background: #1e3a5f;
+        }
+
+        .clear-message {
+            padding: 16px;
+            color: #86efac;
+            background: #102a20;
+            border: 1px solid #166534;
+            border-radius: 10px;
+        }
+
+        .alert {
+            margin-top: 12px;
+            padding: 16px;
+            background: #2d210f;
+            border: 1px solid #a16207;
+            border-radius: 10px;
+        }
+
+        .alert h3 {
+            margin: 0 0 8px;
+            color: #fde68a;
+        }
+
+        .alert p {
+            margin: 0;
+        }
+
+        #error {
+            color: #fb7185;
+        }
+    </style>
+</head>
+
+<body>
+<main>
+    <h1>SentinelLab</h1>
+
+    <p class="monitoring">
+        ● Monitoring <span id="hostname">server</span>
+    </p>
+
+    <p class="source">
+        Network collector: <span id="source">—</span>
+    </p>
+
+    <section class="cards">
+        <div class="card">
+            Download speed
+            <strong class="value" id="download-rate">
+                Calculating…
+            </strong>
+        </div>
+
+        <div class="card">
+            Upload speed
+            <strong class="value" id="upload-rate">
+                Calculating…
+            </strong>
+        </div>
+
+        <div class="card">
+            Total received
+            <strong class="value" id="received">—</strong>
+        </div>
+
+        <div class="card">
+            Total sent
+            <strong class="value" id="sent">—</strong>
+        </div>
+
+        <div class="card">
+            Established TCP
+            <strong class="value" id="connections">—</strong>
+        </div>
+
+        <div class="card">
+            Listening sockets
+            <strong class="value" id="port-count">—</strong>
+        </div>
+
+        <div class="card">
+            Security alerts
+            <strong class="value" id="alert-count">—</strong>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Security Alerts</h2>
+        <div id="alerts"></div>
+    </section>
+
+    <section class="panel">
+        <h2>Alert History</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Port</th>
+                    <th>Address</th>
+                    <th>First seen</th>
+                    <th>Last seen</th>
+                </tr>
+            </thead>
+
+            <tbody id="history"></tbody>
+        </table>
+
+        <p id="no-history">No alert history recorded.</p>
+    </section>
+
+    <section class="panel">
+        <h2>Listening Ports</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Address</th>
+                    <th>Port</th>
+                    <th>Process ID</th>
+                    <th>Exposure</th>
+                </tr>
+            </thead>
+
+            <tbody id="ports"></tbody>
+        </table>
+    </section>
+
+    <p id="updated"></p>
+    <p id="error"></p>
+</main>
+
+<script>
+    let previousSample = null;
+
+    function formatBytes(bytes) {
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let unit = 0;
+
+        while (bytes >= 1024 && unit < units.length - 1) {
+            bytes /= 1024;
+            unit++;
+        }
+
+        return `${bytes.toFixed(1)} ${units[unit]}`;
+    }
+
+    function formatRate(bytesPerSecond) {
+        return `${formatBytes(bytesPerSecond)}/s`;
+    }
+
+    function formatDate(value) {
+        return new Date(value).toLocaleString();
+    }
+
+    function updateNetworkRates(status) {
+        const currentTime = Date.now();
+
+        if (previousSample !== null) {
+            const elapsedSeconds =
+                (currentTime - previousSample.time) / 1000;
+
+            const downloadRate = Math.max(
+                0,
+                status.bytes_received
+                    - previousSample.bytesReceived
+            ) / elapsedSeconds;
+
+            const uploadRate = Math.max(
+                0,
+                status.bytes_sent
+                    - previousSample.bytesSent
+            ) / elapsedSeconds;
+
+            document.querySelector(
+                "#download-rate"
+            ).textContent = formatRate(downloadRate);
+
+            document.querySelector(
+                "#upload-rate"
+            ).textContent = formatRate(uploadRate);
+        }
+
+        previousSample = {
+            time: currentTime,
+            bytesReceived: status.bytes_received,
+            bytesSent: status.bytes_sent
+        };
+    }
+
+    function classifyAddress(address) {
+        if (
+            address.startsWith("127.")
+            || address === "::1"
+        ) {
+            return {
+                label: "Local only",
+                className: "safe"
+            };
+        }
+
+        return {
+            label: "LAN exposed",
+            className: "warning"
+        };
+    }
+
+    function addCell(row, value) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+    }
+
+    function addBadgeCell(row, label, className) {
+        const cell = document.createElement("td");
+        const badge = document.createElement("span");
+
+        badge.className = `badge ${className}`;
+        badge.textContent = label;
+
+        cell.appendChild(badge);
+        row.appendChild(cell);
+    }
+
+    function renderPorts(ports) {
+        const table = document.querySelector("#ports");
+        table.replaceChildren();
+
+        for (const listener of ports) {
+            const row = document.createElement("tr");
+            const exposure =
+                classifyAddress(listener.address);
+
+            addCell(row, listener.address);
+            addCell(row, listener.port);
+            addCell(row, listener.pid ?? "Hidden");
+
+            addBadgeCell(
+                row,
+                exposure.label,
+                exposure.className
+            );
+
+            table.appendChild(row);
+        }
+    }
+
+    function renderAlerts(alerts) {
+        const container = document.querySelector("#alerts");
+        container.replaceChildren();
+
+        if (alerts.length === 0) {
+            const message = document.createElement("div");
+
+            message.className = "clear-message";
+            message.textContent =
+                "No unexpected LAN-exposed ports detected.";
+
+            container.appendChild(message);
+            return;
+        }
+
+        for (const alert of alerts) {
+            const item = document.createElement("article");
+            const title = document.createElement("h3");
+            const description = document.createElement("p");
+
+            item.className = "alert";
+            title.textContent = alert.title;
+            description.textContent = alert.description;
+
+            item.appendChild(title);
+            item.appendChild(description);
+            container.appendChild(item);
+        }
+    }
+
+    function renderHistory(events) {
+        const table = document.querySelector("#history");
+        const emptyMessage =
+            document.querySelector("#no-history");
+
+        table.replaceChildren();
+        emptyMessage.hidden = events.length !== 0;
+
+        for (const event of events) {
+            const row = document.createElement("tr");
+
+            addBadgeCell(
+                row,
+                event.active ? "Active" : "Resolved",
+                event.active ? "warning" : "resolved"
+            );
+
+            addCell(row, event.port);
+            addCell(row, event.address);
+            addCell(row, formatDate(event.first_seen));
+            addCell(row, formatDate(event.last_seen));
+
+            table.appendChild(row);
+        }
+    }
+
+    async function requestJson(url) {
+        const response = await fetch(url, {
+            cache: "no-store"
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `${url} returned ${response.status}`
+            );
+        }
+
+        return response.json();
+    }
+
+    async function refreshDashboard() {
+        try {
+            const [
+                status,
+                listening,
+                alerts,
+                history
+            ] = await Promise.all([
+                requestJson("/api/status"),
+                requestJson("/api/listening-ports"),
+                requestJson("/api/alerts"),
+                requestJson("/api/alert-history")
+            ]);
+
+            document.querySelector("#hostname").textContent =
+                status.hostname;
+
+            document.querySelector("#source").textContent =
+                status.network_source;
+
+            document.querySelector("#received").textContent =
+                formatBytes(status.bytes_received);
+
+            document.querySelector("#sent").textContent =
+                formatBytes(status.bytes_sent);
+
+            document.querySelector("#connections").textContent =
+                status.active_connections ?? "Unavailable";
+
+            document.querySelector("#port-count").textContent =
+                listening.count;
+
+            document.querySelector("#alert-count").textContent =
+                alerts.count;
+
+            updateNetworkRates(status);
+            renderPorts(listening.ports);
+            renderAlerts(alerts.alerts);
+            renderHistory(history.events);
+
+            document.querySelector("#updated").textContent =
+                `Updated ${new Date().toLocaleTimeString()}`;
+
+            document.querySelector("#error").textContent = "";
+
+        } catch (error) {
+            document.querySelector("#error").textContent =
+                `Unable to retrieve data: ${error.message}`;
+        }
+    }
+
+    refreshDashboard();
+    setInterval(refreshDashboard, 5000);
+</script>
+</body>
+</html>

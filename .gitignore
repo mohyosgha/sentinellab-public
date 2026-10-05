@@ -1,0 +1,52 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# CMake and compiled files
+collector/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# SentinelLab runtime data
+*.db
+*.db-*
+*.db.*
+*.sqlite
+*.sqlite3
+
+# Private configuration
+.env
+.env.*
+!.env.example
+docs/LOCAL_DEPLOYMENT.md
+
+# Keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Backups, logs, and editor files
+*.bak
+*.backup
+*.log
+*.swp
+*.swo
+*~
+
+# Operating-system files
+.DS_Store
+Thumbs.db
